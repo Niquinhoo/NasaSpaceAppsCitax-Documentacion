@@ -9,6 +9,7 @@ Estado al 14/11/2026. Cubre los cuatro repositorios del proyecto Citax: API, Fro
 | Componente | Repositorio | Dónde corre | URL |
 |---|---|---|---|
 | API (Express + TypeScript) | NasaSpaceAppsCitax-Api | Cloudflare Workers | https://nasaspaceappscitax-api.nicotrib699.workers.dev |
+| Histórico de FIRMS | NasaSpaceAppsCitax-Api (`migrations/`) | Cloudflare D1 (`nasaspaceappscitax-firms`) | — ([detalle](historico-firms-d1.md)) |
 | Front (React 19 + Vite + Leaflet) | NasaSpaceAppsCitax-Front | Cloudflare Workers (assets estáticos) | https://nasaspaceappscitax-front.nicotrib699.workers.dev |
 | Documentación | NasaSpaceAppsCitax-Documentacion | Solo GitHub | — |
 | Datasets | NasaSpaceAppsCitax-DataSets | Solo GitHub (los .zip se guardan fuera de git) | — |
@@ -16,6 +17,8 @@ Estado al 14/11/2026. Cubre los cuatro repositorios del proyecto Citax: API, Fro
 Flujo de una consulta:
 
 Navegador → Front (Worker de assets) → API (Worker) → NASA FIRMS / Google Earth Engine
+
+Cada respuesta de FIRMS queda guardada en D1 y `/prediction/risk` la reutiliza ([detalle](historico-firms-d1.md)).
 
 ### API en Cloudflare Workers
 
@@ -149,12 +152,13 @@ Corre en cada PR y en cada push a `main`. Revisa:
   - Sin `MAP_KEY` → 503.
 - **Proxy:**
   - La API hace `fetch` a FIRMS con un timeout de 30 s y `redirect: 'manual'`.
-  - Reenvía el CSV como stream (`text/csv`) con `pipeline(Readable.fromWeb(body), res)`, sin cargarlo entero en memoria.
+  - En producción lee el CSV entero, lo responde (`text/csv`) y lo guarda en D1 en segundo plano ([detalle](historico-firms-d1.md)).
+  - Sin base (local, `npm run dev`) lo reenvía como stream con `pipeline(Readable.fromWeb(body), res)`.
   - Si FIRMS responde con error o no hay respuesta → 502.
 
 **Uso en el Front** (`src/api.ts` y `src/firms.ts`):
 
-- Pide `bbox=-73.6,-55.2,-53.5,-21.7`, que cubre Argentina, con `days=1` y la fecha elegida (UTC). Timeout de 35 s.
+- Pide `bbox=-73.75,-55.25,-53.5,-21.75`, que cubre Argentina y es el mismo bbox del modelo de riesgo (así cada día cargado sirve para el pronóstico), con `days=1` y la fecha elegida (UTC). Timeout de 35 s.
 - `parseHotspots` lee el CSV por nombre de columna: `latitude`, `longitude`, `acq_date`, `acq_time`, `satellite`, `instrument`, `confidence`, `frp`, `daynight`.
 - Descarta filas inválidas o de otra fecha.
 - Con la geometría de Natural Earth, se filtran solo los puntos dentro del límite de Argentina.
@@ -163,7 +167,7 @@ Corre en cada PR y en cada push a `main`. Revisa:
 **Ejemplo:**
 
 ```
-GET /nasa/firms/hotspots?bbox=-73.6,-55.2,-53.5,-21.7&days=1&date=2026-11-14
+GET /nasa/firms/hotspots?bbox=-73.75,-55.25,-53.5,-21.75&days=1&date=2026-11-14
 → 200 text/csv
 latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight
 ...
