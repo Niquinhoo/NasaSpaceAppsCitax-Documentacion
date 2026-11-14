@@ -2,3 +2,6 @@
 
 Bitácora del desafío NASA Space Apps (Citax). Registrar acá decisiones, avances y hallazgos.
 
+## Índice
+
+- [Infraestructura, deploy y APIs externas](infraestructura-deploy-apis.md)
